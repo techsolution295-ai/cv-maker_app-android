@@ -162,6 +162,48 @@ class LocalStorageService {
     return _prefs.getBool('is_pro_user') ?? false;
   }
 
+  static const _favoriteTemplatesKey = 'favorite_template_ids';
+  static const _recentTemplatesKey = 'recent_template_ids';
+
+  List<String> getFavoriteTemplateIds() {
+    return _prefs.getStringList(_favoriteTemplatesKey) ?? const [];
+  }
+
+  Future<void> setFavoriteTemplateIds(List<String> ids) async {
+    await _prefs.setStringList(_favoriteTemplatesKey, ids);
+  }
+
+  Future<bool> toggleFavoriteTemplate(String templateId) async {
+    final ids = [...getFavoriteTemplateIds()];
+    final isFavorite = ids.contains(templateId);
+    if (isFavorite) {
+      ids.remove(templateId);
+    } else {
+      ids.add(templateId);
+    }
+    await setFavoriteTemplateIds(ids);
+    return !isFavorite;
+  }
+
+  bool isFavoriteTemplate(String templateId) {
+    return getFavoriteTemplateIds().contains(templateId);
+  }
+
+  List<String> getRecentTemplateIds({int limit = 8}) {
+    final ids = _prefs.getStringList(_recentTemplatesKey) ?? const [];
+    return ids.take(limit).toList();
+  }
+
+  Future<void> addRecentTemplate(String templateId, {int limit = 8}) async {
+    final ids = [...getRecentTemplateIds(limit: 50)]
+      ..remove(templateId);
+    ids.insert(0, templateId);
+    await _prefs.setStringList(
+      _recentTemplatesKey,
+      ids.take(limit).toList(),
+    );
+  }
+
   Future<void> clear() async {
     await _prefs.clear();
   }

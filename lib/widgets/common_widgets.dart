@@ -7,6 +7,8 @@ enum AppSnackType { success, error, info }
 class AppSnackBar {
   const AppSnackBar._();
 
+  static OverlayEntry? _entry;
+
   static void success(BuildContext context, String message) =>
       _show(context, message, AppSnackType.success);
 
@@ -16,55 +18,41 @@ class AppSnackBar {
   static void info(BuildContext context, String message) =>
       _show(context, message, AppSnackType.info);
 
+  static void hide() {
+    _entry?.remove();
+    _entry = null;
+  }
+
   static void _show(
     BuildContext context,
     String message,
     AppSnackType type,
   ) {
-    final messenger = ScaffoldMessenger.of(context);
-    final config = _configFor(type);
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+    hide();
+    ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
 
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: AppTheme.textDark,
-        elevation: 6,
-        duration: const Duration(seconds: 3),
-        margin: const EdgeInsets.all(AppDimensions.paddingMedium),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppDimensions.paddingMedium,
-          vertical: 14,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppDimensions.borderRadiusMedium),
-        ),
-        content: Row(
-          children: [
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: config.color.withOpacity(0.18),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(config.icon, color: config.color, size: 18),
-            ),
-            const SizedBox(width: AppDimensions.paddingMedium),
-            Expanded(
-              child: Text(
-                message,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
+    final config = _configFor(type);
+    final media = MediaQuery.of(context);
+    final scaffold = Scaffold.maybeOf(context);
+    final hasAppBar = scaffold?.widget.appBar != null;
+    final top = media.padding.top + (hasAppBar ? kToolbarHeight : 8) + 8;
+
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => _TopNotice(
+        top: top,
+        message: message,
+        icon: config.icon,
+        accent: config.color,
+        onFinished: () {
+          if (_entry == entry) hide();
+        },
       ),
     );
+    _entry = entry;
+    overlay.insert(entry);
   }
 
   static _SnackConfig _configFor(AppSnackType type) {
@@ -92,6 +80,105 @@ class _SnackConfig {
   final IconData icon;
   final Color color;
   const _SnackConfig(this.icon, this.color);
+}
+
+class _TopNotice extends StatefulWidget {
+  final double top;
+  final String message;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onFinished;
+
+  const _TopNotice({
+    required this.top,
+    required this.message,
+    required this.icon,
+    required this.accent,
+    required this.onFinished,
+  });
+
+  @override
+  State<_TopNotice> createState() => _TopNoticeState();
+}
+
+class _TopNoticeState extends State<_TopNotice>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<Offset> _slide;
+  late final Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+      reverseDuration: const Duration(milliseconds: 220),
+    );
+    _slide = Tween<Offset>(
+      begin: const Offset(0, -0.35),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _controller.forward();
+    Future<void>.delayed(const Duration(milliseconds: 2400), () async {
+      if (!mounted) return;
+      await _controller.reverse();
+      if (mounted) widget.onFinished();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: widget.top,
+      left: 16,
+      right: 16,
+      child: IgnorePointer(
+        child: SlideTransition(
+          position: _slide,
+          child: FadeTransition(
+            opacity: _fade,
+            child: Material(
+              color: Colors.white,
+              elevation: 8,
+              shadowColor: Colors.black26,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(widget.icon, color: widget.accent, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        widget.message,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF1E293B),
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          height: 1.25,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class CustomCard extends StatelessWidget {
@@ -188,9 +275,9 @@ class InfoPill extends StatelessWidget {
         vertical: AppDimensions.paddingSmall,
       ),
       decoration: BoxDecoration(
-        color: pillColor.withOpacity(0.12),
+        color: pillColor.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(AppDimensions.borderRadiusLarge),
-        border: Border.all(color: pillColor.withOpacity(0.3)),
+        border: Border.all(color: pillColor.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

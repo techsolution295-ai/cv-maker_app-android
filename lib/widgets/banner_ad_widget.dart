@@ -36,12 +36,18 @@ class BannerAdWidget extends StatefulWidget {
 }
 
 class _BannerAdWidgetState extends State<BannerAdWidget> {
-  static const Duration _retryDelay = Duration(seconds: 20);
+  // Exponential backoff: 20s -> 40s -> 80s, then give up automatically.
+  static const List<Duration> _retryDelays = [
+    Duration(seconds: 20),
+    Duration(seconds: 40),
+    Duration(seconds: 80),
+  ];
   static const double _adHeight = 54;
 
   BannerAd? _bannerAd;
   bool _loaded = false;
   Timer? _retryTimer;
+  int _failureCount = 0;
 
   bool get _isPro => BillingService.instance.isPro;
 
@@ -65,7 +71,9 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
         _loaded = false;
       });
     } else if (_bannerAd == null) {
-      // Plan expired/cancelled -- resume showing ads.
+      // Plan expired/cancelled -- resume showing ads with a fresh retry
+      // budget instead of whatever backoff state was left over before.
+      _failureCount = 0;
       _load();
     }
   }
@@ -83,6 +91,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
             ad.dispose();
             return;
           }
+          _failureCount = 0;
           setState(() {
             _bannerAd = ad as BannerAd;
             _loaded = true;
@@ -103,6 +112,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
             _bannerAd = null;
             _loaded = false;
           });
+          _failureCount++;
           _scheduleRetry();
         },
       ),
@@ -113,7 +123,17 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
   void _scheduleRetry() {
     _retryTimer?.cancel();
-    _retryTimer = Timer(_retryDelay, () {
+    if (_failureCount > _retryDelays.length) {
+      // 1st failure -> 20s, 2nd -> 40s, 3rd -> 80s, then give up
+      // automatically instead of retrying forever.
+      debugPrint(
+        'BannerAdWidget: giving up after ${_retryDelays.length} retries '
+        'for "${widget.adUnitId}"',
+      );
+      return;
+    }
+    final delay = _retryDelays[_failureCount - 1];
+    _retryTimer = Timer(delay, () {
       if (!mounted || _isPro) return;
       _load();
     });

@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cv_ganerator/constants/dimensions.dart';
 import 'package:cv_ganerator/constants/strings.dart';
+import 'package:cv_ganerator/features/templates/customization/customization_sheet.dart';
+import 'package:cv_ganerator/features/templates/models/resume_template.dart';
+import 'package:cv_ganerator/features/templates/registry/template_registry.dart';
+import 'package:cv_ganerator/features/templates/previews/paged_resume_view.dart';
 import 'package:cv_ganerator/models/resume_data.dart';
 import 'package:cv_ganerator/services/resume_pdf_service.dart';
 import 'package:cv_ganerator/services/file_storage_service.dart';
@@ -21,12 +25,16 @@ class ResumePreviewScreen extends StatefulWidget {
   final ResumeData? resumeData;
   final bool allowEditing;
   final ResumeTemplateKind initialTemplate;
+  final String? initialTemplateId;
+  final TemplateCustomization? customization;
 
   const ResumePreviewScreen({
     required this.resumeTitle,
     this.resumeData,
     this.allowEditing = false,
     this.initialTemplate = ResumeTemplateKind.travis,
+    this.initialTemplateId,
+    this.customization,
     super.key,
   });
 
@@ -57,13 +65,17 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
   late final TextEditingController _linkedinController;
   late List<ExperienceItem> _experience;
   late List<EducationItem> _education;
-  ResumeTemplateKind _templateKind = ResumeTemplateKind.travis;
+  late String _templateId;
+  late TemplateCustomization _customization;
 
   @override
   void initState() {
     super.initState();
     _data = widget.resumeData ?? _sampleData();
-    _templateKind = widget.initialTemplate;
+    _templateId = widget.initialTemplateId ??
+        kLegacyTemplateIds[widget.initialTemplate] ??
+        'ats_classic';
+    _customization = widget.customization ?? const TemplateCustomization();
     _fullNameController = TextEditingController(text: _data.fullName);
     _jobTitleController = TextEditingController(text: _data.jobTitle);
     _emailController = TextEditingController(text: _data.email);
@@ -80,6 +92,22 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
     _linkedinController = TextEditingController(text: _data.linkedin);
     _experience = List<ExperienceItem>.from(_data.experience);
     _education = List<EducationItem>.from(_data.education);
+    for (final controller in [
+      _fullNameController,
+      _jobTitleController,
+      _emailController,
+      _phoneController,
+      _locationController,
+      _summaryController,
+      _skillsController,
+      _languagesController,
+      _referencesController,
+      _photoUrlController,
+      _websiteController,
+      _linkedinController,
+    ]) {
+      controller.addListener(_applyLiveEdits);
+    }
   }
 
   @override
@@ -106,6 +134,16 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
         title: AppStrings.resumeTitle,
         actions: [
           IconButton(
+            icon: const Icon(Icons.style_outlined),
+            onPressed: _changeTemplate,
+            tooltip: 'Templates',
+          ),
+          IconButton(
+            icon: const Icon(Icons.tune),
+            onPressed: _customize,
+            tooltip: 'Customize',
+          ),
+          IconButton(
             icon: const Icon(Icons.share),
             onPressed: _sharePDF,
             tooltip: AppStrings.share,
@@ -122,16 +160,24 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
         children: [
           BannerAdWidget(adUnitId: AdService.bannerAdUnitId),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(AppDimensions.paddingMedium),
-              child: Column(
-                children: [
-                  CustomCard(
-                    backgroundColor: Colors.white,
-                    padding: const EdgeInsets.all(AppDimensions.paddingLarge),
-                    child: _buildResumePreview(),
-                  ),
-                ],
+            child: ColoredBox(
+              color: const Color(0xFFE8EEF4),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppDimensions.paddingMedium,
+                  AppDimensions.paddingMedium,
+                  AppDimensions.paddingMedium,
+                  AppDimensions.paddingLarge,
+                ),
+                child: Column(
+                  children: [
+                    CustomCard(
+                      backgroundColor: Colors.white,
+                      padding: const EdgeInsets.all(AppDimensions.paddingLarge),
+                      child: _buildResumePreview(),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -174,9 +220,16 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
           _buildEditPanel(),
           const SizedBox(height: AppDimensions.paddingLarge),
         ],
-        ResumeTemplateSwitcher(
-          data: _data,
-          kind: _templateKind,
+        ColoredBox(
+          color: const Color(0xFFE6EDF4),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: PagedResumeView(
+              resumeData: _data,
+              templateId: _templateId,
+              customization: _customization,
+            ),
+          ),
         ),
         if (_isEditing) ...[
           const SizedBox(height: AppDimensions.paddingLarge),
@@ -196,6 +249,8 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
         final pdfData = await _pdfService.buildPdf(
           data: _data,
           title: widget.resumeTitle,
+          templateId: _templateId,
+          customization: _customization,
         );
         await Printing.layoutPdf(onLayout: (format) async => pdfData);
         if (mounted) {
@@ -221,6 +276,8 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
         final pdfData = await _pdfService.buildPdf(
           data: _data,
           title: widget.resumeTitle,
+          templateId: _templateId,
+          customization: _customization,
         );
         final baseName =
             _data.fullName.isNotEmpty ? _data.fullName : widget.resumeTitle;
@@ -253,6 +310,8 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
       final pdfData = await _pdfService.buildPdf(
         data: _data,
         title: widget.resumeTitle,
+        templateId: _templateId,
+        customization: _customization,
       );
       final baseName =
           _data.fullName.isNotEmpty ? _data.fullName : widget.resumeTitle;
@@ -272,6 +331,123 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
         setState(() => _isPrinting = false);
       }
     }
+  }
+
+  void _applyLiveEdits() {
+    if (!_isEditing) return;
+    setState(() {
+      _data = _data.copyWith(
+        fullName: _fullNameController.text.trim(),
+        jobTitle: _jobTitleController.text.trim(),
+        email: _emailController.text.trim(),
+        phone: _phoneController.text.trim(),
+        location: _locationController.text.trim(),
+        summary: _summaryController.text.trim(),
+        skills: _splitList(_skillsController.text),
+        languages: _splitList(_languagesController.text),
+        references: _splitList(_referencesController.text),
+        photoUrl: _photoUrlController.text.trim(),
+        website: _websiteController.text.trim(),
+        linkedin: _linkedinController.text.trim(),
+        experience: List<ExperienceItem>.from(_experience),
+        education: List<EducationItem>.from(_education),
+      );
+    });
+  }
+
+  Future<void> _customize() async {
+    final template = TemplateRegistry.getById(_templateId);
+    final updated = await showCustomizationSheet(
+      context: context,
+      template: template,
+      data: _data,
+      customization: _customization,
+    );
+    if (updated == null || !mounted) return;
+    setState(() {
+      _customization = updated;
+      if (updated.sectionOrder.isNotEmpty ||
+          updated.sectionVisibility.isNotEmpty ||
+          updated.sectionTitles.isNotEmpty) {
+        final extraIds = updated.sectionOrder.where((id) {
+          if (ResumeSectionIds.builtIn.contains(id)) return false;
+          return !_data.customSections.any((section) => section.id == id);
+        });
+        _data = _data.copyWith(
+          sectionOrder: updated.sectionOrder.isNotEmpty
+              ? updated.sectionOrder
+              : _data.sectionOrder,
+          sectionVisibility: {
+            ..._data.sectionVisibility,
+            ...updated.sectionVisibility,
+          },
+          sectionTitles: {
+            ..._data.sectionTitles,
+            ...updated.sectionTitles,
+          },
+          customSections: [
+            ..._data.customSections,
+            ...extraIds.map(
+              (id) => CustomSection(
+                id: id,
+                title: updated.sectionTitles[id] ?? 'Custom Section',
+              ),
+            ),
+          ],
+        );
+      }
+    });
+  }
+
+  Future<void> _changeTemplate() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        final templates = TemplateRegistry.allTemplates;
+        return SizedBox(
+          height: MediaQuery.of(context).size.height * 0.72,
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Switch template',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: templates.length,
+                  itemBuilder: (context, index) {
+                    final template = templates[index];
+                    return ListTile(
+                      title: Text(template.name),
+                      subtitle: Text(
+                        [
+                          template.categoryLabel,
+                          if (template.atsFriendly) 'ATS Friendly',
+                        ].join(' • '),
+                      ),
+                      trailing: template.id == _templateId
+                          ? const Icon(Icons.check, color: Color(0xFF1F5AA6))
+                          : null,
+                      onTap: () => Navigator.pop(context, template.id),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _templateId = selected);
   }
 
   void _toggleEdit() {
@@ -518,13 +694,9 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
   }
 
   bool _templateSupportsProfilePhoto() {
-    switch (_templateKind) {
-      case ResumeTemplateKind.travis:
-      case ResumeTemplateKind.alice:
-        return false;
-      default:
-        return true;
-    }
+    if (_customization.photoMode == PhotoMode.hide) return false;
+    if (_customization.photoMode == PhotoMode.show) return true;
+    return TemplateRegistry.getById(_templateId).photoStyle != PhotoStyle.none;
   }
 
   Widget _buildExperienceEditors() {
@@ -540,7 +712,10 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
           _buildExperienceEditor(
             item: _experience[i],
             onChanged: (updated) {
-              setState(() => _experience[i] = updated);
+              setState(() {
+                _experience[i] = updated;
+                _applyLiveEdits();
+              });
             },
           ),
           const SizedBox(height: AppDimensions.paddingMedium),
@@ -562,7 +737,10 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
           _buildEducationEditor(
             item: _education[i],
             onChanged: (updated) {
-              setState(() => _education[i] = updated);
+              setState(() {
+                _education[i] = updated;
+                _applyLiveEdits();
+              });
             },
           ),
           const SizedBox(height: AppDimensions.paddingMedium),
