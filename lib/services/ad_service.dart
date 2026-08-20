@@ -60,6 +60,7 @@ class AdService {
   bool _initializing = false;
   bool _initialized = false;
   bool _isShowingInterstitial = false;
+  bool _isLoadingInterstitial = false;
   bool _isShowingAppOpenAd = false;
   bool _isLoadingStartupAppOpenAd = false;
   bool _isLoadingResumeAppOpenAd = false;
@@ -91,8 +92,11 @@ class AdService {
     unawaited(loadResumeAppOpenAd());
   }
 
+  void preloadInterstitial() => _loadInterstitial();
+
   void _loadInterstitial() {
-    if (_isPro || _interstitialAd != null) return;
+    if (_isPro || _interstitialAd != null || _isLoadingInterstitial) return;
+    _isLoadingInterstitial = true;
 
     InterstitialAd.load(
       adUnitId: interstitialAdUnitId,
@@ -101,6 +105,7 @@ class AdService {
         onAdLoaded: (ad) {
           debugPrint('AdService: interstitial loaded');
           _interstitialAd = ad;
+          _isLoadingInterstitial = false;
         },
         onAdFailedToLoad: (error) {
           debugPrint(
@@ -108,9 +113,22 @@ class AdService {
             'domain=${error.domain} message=${error.message}',
           );
           _interstitialAd = null;
+          _isLoadingInterstitial = false;
         },
       ),
     );
+  }
+
+  Future<void> _waitForInterstitial({
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
+    if (_isPro || _interstitialAd != null) return;
+    _loadInterstitial();
+    final deadline = DateTime.now().add(timeout);
+    while (_interstitialAd == null && DateTime.now().isBefore(deadline)) {
+      if (!_isLoadingInterstitial) return;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
   }
 
   Future<void> loadResumeAppOpenAd() async {
@@ -269,10 +287,17 @@ class AdService {
     await completer.future;
   }
 
-  Future<void> showInterstitialThen(FutureOr<void> Function() action) async {
+  Future<void> showInterstitialThen(
+    FutureOr<void> Function() action, {
+    bool waitForAd = false,
+  }) async {
     if (_isPro) {
       await Future<void>.sync(action);
       return;
+    }
+
+    if (waitForAd && !_isShowingInterstitial && !_isShowingAppOpenAd) {
+      await _waitForInterstitial();
     }
 
     final ad = _interstitialAd;

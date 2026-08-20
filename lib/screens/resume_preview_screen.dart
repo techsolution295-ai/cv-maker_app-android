@@ -92,6 +92,7 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
     _linkedinController = TextEditingController(text: _data.linkedin);
     _experience = List<ExperienceItem>.from(_data.experience);
     _education = List<EducationItem>.from(_data.education);
+    AdService.instance.preloadInterstitial();
     for (final controller in [
       _fullNameController,
       _jobTitleController,
@@ -127,11 +128,20 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
     super.dispose();
   }
 
+  static const Color _desk = Color(0xFFE6EDF4);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppAppBar(
-        title: AppStrings.resumeTitle,
+      backgroundColor: _desk,
+      appBar: AppBar(
+        backgroundColor: _desk,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        title: Text(
+          AppStrings.resumeTitle,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.style_outlined),
@@ -148,7 +158,7 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
             onPressed: _sharePDF,
             tooltip: AppStrings.share,
           ),
-          if (widget.allowEditing) // Only show edit button if allowed
+          if (widget.allowEditing)
             IconButton(
               icon: Icon(_isEditing ? Icons.save : Icons.edit),
               onPressed: _toggleEdit,
@@ -160,84 +170,89 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
         children: [
           BannerAdWidget(adUnitId: AdService.bannerAdUnitId),
           Expanded(
-            child: ColoredBox(
-              color: const Color(0xFFE8EEF4),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(
-                  AppDimensions.paddingMedium,
-                  AppDimensions.paddingMedium,
-                  AppDimensions.paddingMedium,
-                  AppDimensions.paddingLarge,
-                ),
-                child: Column(
-                  children: [
-                    CustomCard(
-                      backgroundColor: Colors.white,
-                      padding: const EdgeInsets.all(AppDimensions.paddingLarge),
-                      child: _buildResumePreview(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            child: _isEditing ? _buildEditingLayout() : _buildTemplatePreview(),
           ),
-          if (!_isEditing)
-            Padding(
-              padding: const EdgeInsets.all(AppDimensions.paddingLarge),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SecondaryButton(
-                      label: _isPrinting
-                          ? 'Opening Print...'
-                          : AppStrings.printResume,
-                      onPressed: (_isPrinting || _isSaving) ? null : _printPDF,
-                      icon: _isPrinting ? Icons.hourglass_top : null,
-                    ),
-                  ),
-                  const SizedBox(width: AppDimensions.paddingMedium),
-                  Expanded(
-                    child: PrimaryButton(
-                      label: AppStrings.saveToGallery,
-                      onPressed:
-                          (_isSaving || _isPrinting) ? null : _savePdfToPhone,
-                      isLoading: _isSaving,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          if (!_isEditing) _buildPrintBar(),
         ],
       ),
     );
   }
 
-  Widget _buildResumePreview() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (_isEditing) ...[
+  Widget _buildTemplatePreview() {
+    return PagedResumeView(
+      resumeData: _data,
+      templateId: _templateId,
+      customization: _customization,
+      scrollable: true,
+      maxPages: 1,
+      padding: const EdgeInsets.fromLTRB(28, 12, 28, 20),
+    );
+  }
+
+  Widget _buildEditingLayout() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           _buildEditPanel(),
           const SizedBox(height: AppDimensions.paddingLarge),
-        ],
-        ColoredBox(
-          color: const Color(0xFFE6EDF4),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: PagedResumeView(
-              resumeData: _data,
-              templateId: _templateId,
-              customization: _customization,
-            ),
+          PagedResumeView(
+            resumeData: _data,
+            templateId: _templateId,
+            customization: _customization,
+            maxPages: 1,
+            padding: EdgeInsets.zero,
           ),
-        ),
-        if (_isEditing) ...[
           const SizedBox(height: AppDimensions.paddingLarge),
           _buildExperienceEditors(),
           const SizedBox(height: AppDimensions.paddingLarge),
           _buildEducationEditors(),
         ],
-      ],
+      ),
+    );
+  }
+
+  Widget _buildPrintBar() {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x140F172A),
+            blurRadius: 16,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: SecondaryButton(
+                  label: _isPrinting
+                      ? 'Opening Print...'
+                      : AppStrings.printResume,
+                  onPressed: (_isPrinting || _isSaving) ? null : _printPDF,
+                  icon: _isPrinting ? Icons.hourglass_top : null,
+                ),
+              ),
+              const SizedBox(width: AppDimensions.paddingMedium),
+              Expanded(
+                child: PrimaryButton(
+                  label: AppStrings.saveToGallery,
+                  onPressed:
+                      (_isSaving || _isPrinting) ? null : _savePdfToPhone,
+                  isLoading: _isSaving,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -245,18 +260,21 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
     if (_isPrinting) return;
     setState(() => _isPrinting = true);
     try {
-      await AdService.instance.showInterstitialThen(() async {
-        final pdfData = await _pdfService.buildPdf(
-          data: _data,
-          title: widget.resumeTitle,
-          templateId: _templateId,
-          customization: _customization,
-        );
-        await Printing.layoutPdf(onLayout: (format) async => pdfData);
-        if (mounted) {
-          AppSnackBar.info(context, 'Print dialog opened');
-        }
-      });
+      await AdService.instance.showInterstitialThen(
+        () async {
+          final pdfData = await _pdfService.buildPdf(
+            data: _data,
+            title: widget.resumeTitle,
+            templateId: _templateId,
+            customization: _customization,
+          );
+          await Printing.layoutPdf(onLayout: (format) async => pdfData);
+          if (mounted) {
+            AppSnackBar.info(context, 'Print dialog opened');
+          }
+        },
+        waitForAd: true,
+      );
     } catch (error) {
       if (mounted) {
         AppSnackBar.error(context, 'Failed to print PDF: $error');
